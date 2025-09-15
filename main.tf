@@ -1,23 +1,26 @@
 provider "aws" {
-  region = "eu-west-3"  # Paris region
+  region = "eu-west-3"
 }
 
-# Security Group for Jenkins + SonarQube server
-resource "aws_security_group" "narasimha_sg" {
-  name        = "narasimha-sg"
-  description = "Allow SSH, Jenkins, SonarQube, and Docker"
-  vpc_id      = "vpc-0d1c5420a6c0c5f79"  # Clahan-VPC
-
-  ingress {
-    description = "SSH"
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+terraform {
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = ">= 5.0.0"
+    }
   }
 
+  required_version = ">= 1.3.0"
+}
+
+# ---- Jenkins Security Group ----
+resource "aws_security_group" "jenkins_sg" {
+  name        = "narasimha-jenkins-sg"
+  description = "Allow Jenkins + SSH access"
+  vpc_id      = "vpc-0d1c5420a6c0c5f79" 
+
   ingress {
-    description = "Jenkins UI"
+    description = "Jenkins UI & Prometheus Metrics"
     from_port   = 8080
     to_port     = 8080
     protocol    = "tcp"
@@ -25,25 +28,9 @@ resource "aws_security_group" "narasimha_sg" {
   }
 
   ingress {
-    description = "Docker UI"
-    from_port   = 3000
-    to_port     = 3000
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  ingress {
-    description = "SonarQube UI"
-    from_port   = 9000
-    to_port     = 9000
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  ingress {
-    description = "Jenkins Agent (JNLP)"
-    from_port   = 50000
-    to_port     = 50000
+    description = "SSH"
+    from_port   = 22
+    to_port     = 22
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
@@ -56,62 +43,45 @@ resource "aws_security_group" "narasimha_sg" {
   }
 }
 
-resource "aws_instance" "narasimha_instance" {
-  ami                         = "ami-02d7ced41dff52ebc" # Ubuntu 22.04 LTS
-  instance_type               = "t3.large"              # SonarQube needs >2GB RAM
-  subnet_id                   = "subnet-0448c551abe9d8da1"
-  vpc_security_group_ids      = [aws_security_group.narasimha_sg.id]
-  key_name                    = "Narasimha"
-  associate_public_ip_address = true
+# ---- Jenkins EC2 Instance ----
+resource "aws_instance" "jenkins" {
+  ami           = "ami-075d35647275e3501"
+  instance_type = "t3.medium"
+  subnet_id     = "subnet-03980fab5b6870373" 
+  vpc_security_group_ids = [aws_security_group.jenkins_sg.id]
+  key_name      = "Narasimha" 
 
   user_data = <<-EOF
-              #!/bin/bash
-              exec > /var/log/user-data.log 2>&1
-              set -e
+    #!/bin/bash
+    dnf update -y
+    dnf install -y java-17-amazon-corretto git wget
 
-              echo "==== Updating system ===="
-              apt-get update -y
+    # Install Jenkins
+    wget -O /etc/yum.repos.d/jenkins.repo https://pkg.jenkins.io/redhat-stable/jenkins.repo
+    rpm --import https://pkg.jenkins.io/redhat-stable/jenkins.io-2023.key
+    dnf install -y jenkins
 
-              echo "==== Installing Java 17 ===="
-              apt-get install -y openjdk-17-jdk
+    systemctl enable jenkins
+    systemctl start jenkins
 
-              echo "==== Adding Jenkins repo ===="
-              curl -fsSL https://pkg.jenkins.io/debian-stable/jenkins.io-2023.key | sudo tee \
-                /usr/share/keyrings/jenkins-keyring.asc > /dev/null
-              echo deb [signed-by=/usr/share/keyrings/jenkins-keyring.asc] \
-                https://pkg.jenkins.io/debian-stable binary/ | sudo tee \
-                /etc/apt/sources.list.d/jenkins.list > /dev/null
-
-              echo "==== Installing Jenkins ===="
-              apt-get update -y
-              apt-get install -y jenkins
-
-              echo "==== Starting Jenkins ===="
-              systemctl enable jenkins
-              systemctl start jenkins
-
-              echo "==== Installing Docker ===="
-              apt-get install -y docker.io
-              systemctl enable docker
-              systemctl start docker
-              usermod -aG docker jenkins
-
-              echo "==== Installing Git & NodeJS ===="
-              apt-get install -y git nodejs npm
-
-              echo "==== Installing SonarQube (via Docker) ===="
-              docker run -d --name sonarqube \
-                -p 9000:9000 \
-                sonarqube:lts
-
-              echo "==== Setup complete! ===="
-              EOF
+    # Install Docker
+    dnf install -y docker
+    systemctl enable docker
+    systemctl start docker
+    usermod -aG docker jenkins
+    usermod -aG docker ec2-user
+  EOF
 
   tags = {
-    Name = "Narasimha-Jenkins-SonarQube-Server"
+    Name = "narasimha-jenkins"
   }
 }
 
-output "jenkins_server_public_ip" {
-  value = aws_instance.narasimha_instance.public_ip
+# ---- Outputs ----
+output "jenkins_public_ip" {
+  value = aws_instance.jenkins.public_ip
+}
+
+output "jenkins_url" {
+  value = "http://${aws_instance.jenkins.public_ip}:8080"
 }
