@@ -1,11 +1,12 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: bookmyshow-deployment
+  name: bookmyshow
+  namespace: narasimha
   labels:
     app: bookmyshow
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: bookmyshow
@@ -16,9 +17,6 @@ spec:
     spec:
       containers:
         - name: bookmyshow
-          image: narasimha0001/bookmyshow:latest   # ✅ Matches Jenkins pipeline
+          image: narasimha0001/bookmyshow1:latest
           ports:
-            - containerPort: 3000
-          env:
-            - name: NODE_ENV
-              value: "production"
+            - containerPort: 80
