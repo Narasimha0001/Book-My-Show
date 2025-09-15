@@ -2,11 +2,11 @@ apiVersion: v1
 kind: Service
 metadata:
   name: bookmyshow-service
+  namespace: narasimha
 spec:
+  type: LoadBalancer
   selector:
     app: bookmyshow
   ports:
-    - protocol: TCP
-      port: 80           # Exposed externally
-      targetPort: 3000   # Maps to containerPort
-  type: LoadBalancer     # ✅ For cloud (AWS, GCP, Azure); use NodePort if on Minikube
+    - port: 80
+      targetPort: 80
