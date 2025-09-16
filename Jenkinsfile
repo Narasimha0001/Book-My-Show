@@ -44,7 +44,7 @@ pipeline {
                     waitForQualityGate abortPipeline: true
                 }
             } catch (err) {
-                echo "⚠️ Quality Gate skipped due to timeout: ${err}"
+                echo "Quality Gate skipped due to timeout: ${err}"
             }
         }
     }
